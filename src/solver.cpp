@@ -15,7 +15,7 @@ struct Node{
 };
 
 struct Points_to_graph{
-  vector <Node> nodes;
+  map<Variable, Node> nodes;
 };
 
 class Solver{
@@ -25,6 +25,7 @@ class Solver{
   int lineptr = 0; //stores the line number of a PtrToInt instruction
   Variable ptr; //variable used to store the operand of a PtrToInt instruction
   public:
+    
   void merge(Node *n1, Node *n2){
     if(n1!=nullptr){
       n1->points_to_variables.insert(n1->points_to_variables.end(), n2->points_to_variables.begin(), n2->points_to_variables.end());
@@ -36,30 +37,24 @@ class Solver{
   }
     
   Node* findNode(Variable node_name){
-    for (unsigned i=0; i<graph.nodes.size(); i++){
-      //((graph.nodes[i].points_to_variable[0] == node_name) ? return graph.nodes[i]: return nullptr);
-      if(graph.nodes[i].points_to_variables[0] == node_name){
-	//llvm::errs() << "deu certo para: "<< node_name <<"!!!!!\n";
-	return &graph.nodes[i];
-      }
-    }
-    return nullptr;
+    // here we simple check if a node exists in the graph
+    // in positive case we return a reference to it, otherwise we return a null pointer
+    return ((graph.nodes.count(node_name) == 1) ? &graph.nodes[node_name] : nullptr);
   }
   
   void printGraph(){
     Node *node = nullptr;
     cout << "\ngrafo final " <<"\n";
-    for (unsigned i=0;i<this->graph.nodes.size();i++){
-      node = &graph.nodes[i];
+    for(auto &i: graph.nodes){
+      node = &i.second;
       while(node!=nullptr){
-	llvm::errs() << node->points_to_variables[0] << " -> ";
+	for(int j=0; j<node->points_to_variables.size(); ++j) //print all variables in a set of a node
+	  llvm::errs() << node->points_to_variables[j]; 
+	llvm::errs() << " -> ";
 	node=node->next;
       }
       errs() <<"\n";
     }
-      //llvm::errs() << "nos: " << graph.nodes[i].points_to_variables[0];
-      //for (unsigned j =0;j<graph.nodes[i].points_to_variables.size();j++)
-	//llvm::errs() << graph.nodes[i].points_to_variables[j] << " ";
   }
   
   bool runOnModule(Module &M){
@@ -70,40 +65,29 @@ class Solver{
 	for (Instruction &I: bb) {
 	  lineno++;
 	  switch(I.getOpcode()){
-	    case Instruction::Alloca: {
+	    case Instruction::Alloca:{
 	      Node n;
 	      Variable v = I.getName();
 	      n.points_to_variables.push_back(v);
 	      n.next=nullptr;
-	      graph.nodes.push_back(n);
+	      graph.nodes[v]=n;
 	      break;
 	    }
 	    case Instruction::Store:{
 	      Variable v1 = ((lineno - lineptr == 1) ? ptr : I.getOperand(0)->getName());
 	      Variable v2 = I.getOperand(1)->getName();
-	      //llvm::errs() << "comando " <<v2 <<" = " <<v1 <<"\n";
 	      Node *node1 = findNode(v2);
-	      Node *node2 = findNode(v1); //CONSERTAR ISSO DAQUI, ACHO INEFICIENTE TER QUE FAZER DUAS PESQUISAS!!!!!!
+	      Node *node2 = findNode(v1);
 	      if(node1!=nullptr && node2!=nullptr){
 		if(node1->next == nullptr){
-		  node1->next = node2;;
-		  //llvm::errs() << "no " << node1->points_to_variables[0] <<" aponta para "<< node1->next->points_to_variables[0]<<"\n";
+		  node1->next = node2;
 		}
+		//else
+		//merge(node1,node2)
 	      }
-	      //Node *j = findNode(v1);
-	      //merge(findNode(v2),findNode(v1));
-	      //if(j!=nullptr){
-		//llvm::errs() << "encontrado o no: " <<j->points_to_variables[0] <<"\n";
-		
-	      //}
-	      //merge(findNode(v2),findNode(v1));
-		//llvm::errs() << v1 <<" " << v2 << "\n\n";
-	      
-	      
 	      break;
 	    }
 	    case Instruction::PtrToInt:{
-	      //llvm::errs() << "olha a instrucao " <<I.getOperand(0)->getName() <<"\n";
 	      ptr = I.getOperand(0)->getName();
 	      lineptr = lineno;
 	    }
