@@ -2,15 +2,15 @@
 //#include "fdd.h"
 #include "points_to_graph.cpp"
 
-using namespace llvm;
-
 class Solver{
   //bdd x;
   private:
   Points_to_Graph graph;
   int lineno = 0;
   int lineptr = 0; //stores the line number of a PtrToInt instruction
-  Variable ptr; //variable used to store the operand of a PtrToInt instruction
+  Variable ptrOperand; //variable used to store the operand of a PtrToInt instruction
+  int lineload = 0;
+  Variable loadOperand;
   
   //below the methods for handle each LLVM's IR instruction are implemented
   void handleAlloca(Instruction* I){
@@ -22,7 +22,8 @@ class Solver{
   }
     
   void handleStore(Instruction* I){
-    Variable v1 = ((lineno - lineptr == 1) ? ptr : I->getOperand(0)->getName());
+    Variable v1 = ((lineno - lineptr == 1) ? ptrOperand : I->getOperand(0)->getName());
+    v1 = ((lineno - lineload == 1) ? loadOperand : v1);
     Variable v2 = I->getOperand(1)->getName();
     Node *node1 = graph.findNode(v2);
     Node *node2 = graph.findNode(v1);
@@ -37,8 +38,13 @@ class Solver{
   }
     
   void handlePtrToInt(Instruction* I){
-    ptr = I->getOperand(0)->getName();
+    ptrOperand = I->getOperand(0)->getName();
     lineptr = lineno;
+  }
+  
+  void handleLoad(Instruction* I){
+    loadOperand = I->getOperand(0)->getName();
+    lineload = lineno;
   }
     
   public:
@@ -58,6 +64,9 @@ class Solver{
 	      break;
 	    case Instruction::PtrToInt:
 	      handlePtrToInt(&I);
+	      break;
+	    case Instruction::Load:
+	      handleLoad(&I);
 	      break;
 	  }
 	}
