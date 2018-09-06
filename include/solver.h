@@ -13,6 +13,7 @@ class Solver{
     int lineptr = 0; //stores the line number of a PtrToInt instruction
     Variable ptrOperand; //variable used to store the operand of a PtrToInt instruction
     Variable loadOperand; //variable used to store the operand of a Load instruction
+    vector<Variable> loadVariables; //vector used to store the operands of the load instructions. It is necessary being a vector because the function calls
     bool copyConstraint = false; //this flag indicate if we are treating a copy constraint, because it's treatment is different
     
     void handleAlloca(Instruction* I);
@@ -20,6 +21,7 @@ class Solver{
     void handleStoreInCopyConstraint(Node* nodeLeft, Node* nodeRight);
     void handlePtrToInt(Instruction* I);
     void handleLoad(Instruction* I);
+    void handleCall(Instruction* I);
   
   public:
     bool runOnModule(Module &M); //this method is responsible to do the interface with the LLVM's pass infrastructure
