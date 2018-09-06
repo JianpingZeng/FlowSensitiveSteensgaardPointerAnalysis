@@ -12,11 +12,12 @@ class Solver{
     int lineno = 0;
     int lineptr = 0; //stores the line number of a PtrToInt instruction
     Variable ptrOperand; //variable used to store the operand of a PtrToInt instruction
-    int lineload = 0; //stores the line number of a Load instruction
     Variable loadOperand; //variable used to store the operand of a Load instruction
+    bool copyConstraint = false; //this flag indicate if we are treating a copy constraint, because it's treatment is different
     
     void handleAlloca(Instruction* I);
     void handleStore(Instruction* I);
+    void handleStoreInCopyConstraint(Node* nodeLeft, Node* nodeRight);
     void handlePtrToInt(Instruction* I);
     void handleLoad(Instruction* I);
   

@@ -3,7 +3,7 @@
 #include "../include/solver.h"
 #include "points_to_graph.cpp"
 
-//below the methods for handle each LLVM's IR instruction are implemented
+//Below the methods for handle each LLVM's IR instruction are implemented
 void Solver::handleAlloca(Instruction* I){
   Node n;
   Variable v = I->getName();
@@ -11,10 +11,10 @@ void Solver::handleAlloca(Instruction* I){
   n.next=nullptr;
   graph.insertNode(n,v);
 }
-  
+
 void Solver::handleStore(Instruction* I){
   Variable v1 = ((lineno - lineptr == 1) ? ptrOperand : I->getOperand(0)->getName());
-  v1 = ((lineno - lineload == 1) ? loadOperand : v1);
+  v1 = ((copyConstraint) ? loadOperand : v1);
   Variable v2 = I->getOperand(1)->getName();
   Node *node1 = graph.findNode(v2);
   Node *node2 = graph.findNode(v1);
@@ -23,9 +23,22 @@ void Solver::handleStore(Instruction* I){
       node1->next = node2;
     }
     else{
-      graph.merge(node1->next,node2);
+      //In case of a copy constraint, we call the appropriate method
+      (copyConstraint) ? handleStoreInCopyConstraint(node1, node2) : graph.merge(node1->next,node2);
+      //We set the flag to false since we already treated the contraint at this point
+      copyConstraint = false;
     }
   }
+}
+
+void Solver::handleStoreInCopyConstraint(Node* nodeLeft, Node* nodeRight){
+  //We create this method because the treatment of a copy instruction is a little bit different.
+  //In a copy instruction we must merge the points-to sets of both nodes; and the both origin nodes must point to this new node, what doesn't 
+  //happen when we simple merge, since we delete the points-to set of second node to save memory. Therefore, we
+  //save the reference to the second node and after the merge we make the node point to the new node created. 
+  Node *refNodeRight = nodeRight;
+  graph.merge(nodeLeft->next,nodeRight->next);
+  refNodeRight->next = nodeLeft->next;
 }
   
 void Solver::handlePtrToInt(Instruction* I){
@@ -35,7 +48,11 @@ void Solver::handlePtrToInt(Instruction* I){
   
 void Solver::handleLoad(Instruction* I){
   loadOperand = I->getOperand(0)->getName();
-  lineload = lineno;
+  //Steensgaard Analysis ignore the statement if the points-to set of the right-side operator is empty
+  //In this case, merge it's not necessary
+  if(graph.findNode(loadOperand)->next==nullptr) 
+    return;
+  copyConstraint = true;
 }
   
   
