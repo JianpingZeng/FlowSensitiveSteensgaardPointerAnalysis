@@ -13,7 +13,8 @@ struct Node{
 };
 
 class Points_to_Graph{
-  map<Variable, Node> nodes;
+  private:
+    map<Variable, Node> nodes;
   
   public:
      void insertNode(Node node, Variable node_name);

@@ -11,7 +11,7 @@ Node* Points_to_Graph::findNode(Variable node_name){
 }
 
 void Points_to_Graph::merge(Node *n1, Node *n2){
-  //this function merge two nodes, doing the find of Steensgaard's pointer analysis
+  //this function merge two nodes, doing the union operation of Steensgaard's pointer analysis
   //we add the variables in points-to set of a node in the points-to set of another one 
   n1->points_to_variables.insert(n1->points_to_variables.end(), n2->points_to_variables.begin(), n2->points_to_variables.end());
   if(n1->next!=nullptr){  //we merge recursively the nodes pointed by the nodes we first merge
