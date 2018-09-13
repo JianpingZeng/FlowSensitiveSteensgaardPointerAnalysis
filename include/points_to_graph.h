@@ -19,6 +19,7 @@ class Points_to_Graph{
   public:
      void insertNode(Node node, Variable node_name);
      Node* findNode(Variable node_name);
+     void updateNode(Variable node_name, Variable new_node_name);
      void merge(Node *n1, Node *n2);
      void print();
      

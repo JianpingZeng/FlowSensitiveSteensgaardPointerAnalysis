@@ -1,5 +1,3 @@
-//#include <bdd.h>
-//#include "fdd.h"
 #include "../include/solver.h"
 #include "points_to_graph.cpp"
 
@@ -56,17 +54,45 @@ void Solver::handleLoad(Instruction* I){
   copyConstraint = true;
 }
   
-void Solver::handleCall(Instruction* I){ //COLOCAR COMENTARIOS NO CODIGO DESSA FUNÇÃO COMO FOI FEITO PARA TER ACESSO A PARAMETROS REAIS E FORMAIS
-  Function *F = cast<CallInst>(*I).getCalledFunction();
-  unsigned i=0;
-  for(auto arg = F->arg_begin(); arg != F->arg_end(); ++arg) {
+void Solver::handleCall(Instruction* I){
+  Function *F = cast<CallInst>(*I).getCalledFunction(); //We cast the instruction to a CallInst to get information about the CALLEE?????? function
+  //When occurs a function call that have some kind of return, LLVM's IR store this value in a temporary called %call
+  //LLVM's Instruction inherits from Value class, so we can use it's name as a Value.
+  if(!I->getName().empty()){ //If the name of the Instruction is not empty, we have a %call temporary receiving the function call
+    //A new node is created to this temporary because we need merge it with the variable which receives the function result in the source code
+    Node n;
+    Variable v = I->getName();
+    n.points_to_variables.push_back(v);
+    n.next=graph.findNode(F->getName())->next; //It's points-to set is the points-to set of the return node of the function we are handling
+    graph.insertNode(n,v);
+    loadVariables.push_back(v); //we have to put the new node in the loadVariables vector because there's always a Load instruction before a function call
+  }
+  unsigned i=F->arg_size();
+  for(auto arg = F->arg_begin(); arg != F->arg_end(); ++arg) { //Here we get the formal parameters of the function
     Twine argName(arg->getName(), ".addr");
     string node_name(argName.str());
+    //The LLVM loads all the real parameters in temporaries before the function call. Those parameters are stored in the loadVariables vector
+    //Due the C's passing parameters mechanism, we merge the parameters treating the function call like a copy constraint
     handleStoreInCopyConstraint(graph.findNode(node_name), graph.findNode(loadVariables[i]));
     i++;
   }
+  copyConstraint = false;
 }
-  
+
+void Solver::handleRet(Instruction* I){
+  //A Ret instruction is equivalet a return of a function in the source code. Independetly of how many return statements the function has,
+  //the LLVM's IR create a single basic block with a Ret instruction. A Load instruction occurs to get the return value from a temporary, 
+  //however this doesn't characterize a Copy Constraint, thus we set the flag to false. 
+   copyConstraint = false;
+   ReturnInst *ri = dyn_cast<ReturnInst>(I);
+   if(ri->getNumOperands()!=0){
+     //The LLVM's IR create a sinlge temporary to the return value called retval. So we have to change it1s node because we'll work with many functions
+     //We simply "change the key" of the node to the name of the function that returns. Of course, we do this if the function has some return value,
+     //that is, a non-void return
+     graph.updateNode("retval",I->getFunction()->getName());
+   }
+}
+
 bool Solver::runOnModule(Module &M) {
   errs() << "Nome do modulo: " << M.getName() <<"\n";
   for(Function &F: M){
@@ -90,11 +116,13 @@ bool Solver::runOnModule(Module &M) {
 	  case Instruction::Call:
 	    handleCall(&I);
 	    break;
+	  case Instruction::Ret:
+	    handleRet(&I);
+	    break;
 	}
       }
     }
   }
-  //bdd_done();
   graph.print();
   return false;
 }

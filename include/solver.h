@@ -6,7 +6,6 @@ using namespace std;
 using namespace llvm;
 
 class Solver{
-  //bdd x;
   private:
     Points_to_Graph graph;
     int lineno = 0;
@@ -22,6 +21,7 @@ class Solver{
     void handlePtrToInt(Instruction* I);
     void handleLoad(Instruction* I);
     void handleCall(Instruction* I);
+    void handleRet(Instruction* I);
   
   public:
     bool runOnModule(Module &M); //this method is responsible to do the interface with the LLVM's pass infrastructure

@@ -10,11 +10,21 @@ Node* Points_to_Graph::findNode(Variable node_name){
   return ((nodes.count(node_name) == 1) ? &nodes[node_name] : nullptr);
 }
 
+void Points_to_Graph::updateNode(Variable node_name, Variable new_node_name){ 
+  //This function is used to update a node in the graph. Since the key in C++ map is a const value, we're not able to change it directly,
+  //so we have to retrieve the node to be changed, edit what we want (in this case, the name of node), insert this new node and delete the old one.
+  Node* node = findNode(node_name);
+  node->points_to_variables[0]=new_node_name;
+  insertNode(*node, new_node_name);
+  nodes.erase(node_name);
+}
+
 void Points_to_Graph::merge(Node *n1, Node *n2){
   //This function merge two nodes, doing the union operation of Steensgaard's pointer analysis.
   //We add the variables in points-to set of a node in the points-to set of another one. 
   if(n1==nullptr || n2==nullptr)
     return;
+  //errs()<<"merge " <<n1->points_to_variables[0] <<" e " <<n2->points_to_variables[0] <<"\n";
   n1->points_to_variables.insert(n1->points_to_variables.end(), n2->points_to_variables.begin(), n2->points_to_variables.end());
   if(n1->next!=nullptr){  //We merge recursively the nodes pointed by the nodes we first merge
     merge(n1->next, n2->next);
