@@ -24,7 +24,8 @@ void Solver::handleStore(Instruction* I){
       return;
     }
     if(node1->next == nullptr){
-      node1->next = node2;
+      (copyConstraint) ? node1->next = node2->next : node1->next = node2;
+      copyConstraint = false;
       return;
     }
     //In case of a copy constraint, we call the appropriate method
@@ -32,6 +33,7 @@ void Solver::handleStore(Instruction* I){
     //We set the flag to false since we already treated the contraint at this point
     copyConstraint = false;
   }
+  
 }
 
 void Solver::handleStoreInCopyConstraint(Node* nodeLeft, Node* nodeRight){
@@ -51,12 +53,14 @@ void Solver::handlePtrToInt(Instruction* I){
   
 void Solver::handleLoad(Instruction* I){
   loadOperand = I->getOperand(0)->getName();
-  loadVariables.push_back(loadOperand);
-  //Steensgaard Analysis ignore the statement if the points-to set of the right-side operator is empty
-  //In this case, merge it's not necessary
-  if(graph.findNode(loadOperand)->next==nullptr) 
-    return;
-  copyConstraint = true;
+  if(!loadOperand.empty()){ //If the operand is not a IR's temporary
+    loadVariables.push_back(loadOperand);
+    //Steensgaard Analysis ignore the statement if the points-to set of the right-side operator is empty
+    //In this case, merge it's not necessary
+    if(graph.findNode(loadOperand)->next==nullptr) 
+      return;
+    copyConstraint = true;
+  }
 }
   
 void Solver::handleCall(Instruction* I){
@@ -107,11 +111,24 @@ void Solver::handleRet(Instruction* I){
 
 void Solver::handleGetElementPtr(Instruction* I){
   //When occurs a access to a vector, LLVM's IR creat a temporary called "%arayidx". We create a node for this temporary, and set true the 
-  //delTemporaryNode flag, thus the algorithm delete this node after the store which use this node.
+  //delTemporaryNode flag, thus the algorithm delete this node after the store which use this node. This node points-to the array node.
   Node n;
   Variable v = I->getName();
   n.points_to_variables.push_back(v);
   n.next= graph.findNode(I->getOperand(0)->getName());
+  graph.insertNode(n,v);
+  delTemporaryNode = true;
+}
+
+void Solver::handlePHI(Instruction* I){
+  //When occurs a phi instruction, LLVM's IR creat a temporary called "%cond". We create a node for this temporary, and set true the 
+  //delTemporaryNode flag, thus the algorithm delete this node after the store which use this node. This node points-to the merge of the nodes
+  //correspondent to the true and false paths of the condition.
+  Node n;
+  Variable v = I->getName();
+  n.points_to_variables.push_back(v);
+  n.next= graph.findNode(I->getOperand(0)->getName()); //Initially, the node points-to the node of true paths
+  graph.merge(n.next, graph.findNode(I->getOperand(1)->getName())); //Then, we merge the node of false path in the points-to set.
   graph.insertNode(n,v);
   delTemporaryNode = true;
 }
@@ -144,6 +161,9 @@ bool Solver::runOnModule(Module &M) {
 	    break;
 	  case Instruction::GetElementPtr:
 	    handleGetElementPtr(&I);
+	    break;
+	  case Instruction::PHI:
+	    handlePHI(&I);
 	    break;
 	}
       }

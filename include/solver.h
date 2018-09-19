@@ -24,6 +24,7 @@ class Solver{
     void handleCall(Instruction* I);
     void handleRet(Instruction* I);
     void handleGetElementPtr(Instruction* I);
+    void handlePHI(Instruction* I);
   
   public:
     bool runOnModule(Module &M); //this method is responsible to do the interface with the LLVM's pass infrastructure
