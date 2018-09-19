@@ -10,6 +10,11 @@ Node* Points_to_Graph::findNode(Variable node_name){
   return ((nodes.count(node_name) == 1) ? &nodes[node_name] : nullptr);
 }
 
+void Points_to_Graph::deleteNode(Variable node_name){
+  //This function is used to delete nodes referents to LLVM's IR temporaries, which doesn't exist in the high level code.
+  nodes.erase(node_name);
+}
+
 void Points_to_Graph::updateNode(Variable node_name, Variable new_node_name){ 
   //This function is used to update a node in the graph. Since the key in C++ map is a const value, we're not able to change it directly,
   //so we have to retrieve the node to be changed, edit what we want (in this case, the name of node), insert this new node and delete the old one.
