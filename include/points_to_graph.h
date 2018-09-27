@@ -8,6 +8,7 @@ using namespace llvm;
 typedef StringRef Variable;
 
 struct Node{
+  Variable name;
   vector <Variable> points_to_variables;
   Node *next;
 };

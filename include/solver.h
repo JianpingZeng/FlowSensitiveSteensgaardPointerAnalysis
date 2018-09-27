@@ -15,11 +15,15 @@ class Solver{
     vector<Variable> loadVariables; //vector used to store the operands of the load instructions. It is necessary being a vector because the function calls
     bool copyConstraint = false; //this flag indicate if we are treating a copy constraint, because it's treatment is different
     bool delTemporaryNode = false; //this flag indicate a Store with a node correspondent to a LLVM's IR temporary. This means we need delete the node after the store
+    bool falseBlock = false; //COMENTAR TODO O CODIGO
+    int ifCounter = 0;
     
-    void handleAlloca(Instruction* I);
+    void handleAlloca(Variable name_node);
     void handleStore(Instruction* I);
     void handleStoreInCopyConstraint(Node* nodeLeft, Node* nodeRight);
+    void handleStoreInFalseBlock(Function* F,Node* node1, Node* node2);
     void handlePtrToInt(Instruction* I);
+    void handleIntToPtr();
     void handleLoad(Instruction* I);
     void handleCall(Instruction* I);
     void handleRet(Instruction* I);
