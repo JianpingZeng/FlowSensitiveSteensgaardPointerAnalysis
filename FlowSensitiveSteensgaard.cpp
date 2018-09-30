@@ -4,7 +4,7 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/Support/raw_ostream.h"
-#include "./src/solver.cpp" //external code containing the constraint solver
+#include "./src/solver.cpp" //external code
 
 using namespace llvm;
 
