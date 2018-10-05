@@ -36,6 +36,7 @@ void Solver::handleStore(Instruction* I){
       }
     }
     if(delTemporaryNode){ //If we are storing a value from a temporary node, we must delete this node, because it's not exists in the source code
+      
       node1->next = node2->next;
       graph.deleteNode(node2->points_to_variables[0]);
       delTemporaryNode = false;
@@ -56,7 +57,11 @@ void Solver::handleStore(Instruction* I){
 
 void Solver::handleStoreInCopyConstraint(Node* nodeLeft, Node* nodeRight){
   //We create this method because the treatment of a copy instruction is a little bit different.
-  nodeLeft->next = nodeRight->next;
+  //errs() << nodeLeft->points_to_variables[0] <<" " <<nodeRight->points_to_variables[0] <<"\n";
+  if(nodeRight->next==nullptr)
+    nodeRight->next = nodeLeft;
+  else
+    nodeLeft->next = nodeRight->next;
 }
 
 void Solver::handleStoreInMayExecuteBasicBlock(Node* node1, Node* node2){
@@ -91,6 +96,7 @@ void Solver::handleLoad(Instruction* I){
 }
   
 void Solver::handleCall(Instruction* I){
+  errs() << *I <<"\n";
   Function *F = cast<CallInst>(*I).getCalledFunction(); //We cast the instruction to a CallInst to get information about the calee function
   //When occurs a function call that have some kind of return, LLVM's IR store this value in a temporary called %call
   //LLVM's Instruction inherits from Value class, so we can use it's name as a Value.
@@ -111,7 +117,7 @@ void Solver::handleCall(Instruction* I){
     Twine argName(arg->getName(), ".addr");
     Variable node_name(argName.str());
     //The LLVM loads all the real parameters in temporaries before the function call. Those parameters are stored in the loadVariables vector
-    //Due the C's passing parameters mechanism, we merge the parameters treating the function call like a copy constraint
+    //Due the C's passing parameters mechanism, we merge the parameters treating the function call like a copy constraint    
     handleStoreInCopyConstraint(graph.findNode(loadVariables[k-i]),graph.findNode(node_name));
     i--;
   }
@@ -161,15 +167,21 @@ void Solver::handlePHI(Instruction* I){
   //We first create a node to store the temporary "%cond" and insert into the graph
   Node n, n_next;
   Variable node_name = I->getName();
+  //string s1 = I->getFunction()->getName().str();
+  //const char *c = s1.c_str();
+  //Twine s3(I->getName(), c);
+  //Variable node_name = s3.str();
+  //errs() <<"NODE NAME: "<< node_name <<"\n";
   n.points_to_variables.push_back(node_name);
   n.next = nullptr;
   graph.insertNode(n, node_name);
  
   //Then we create a node for which the "%cond" node must points to. This node must contain the variables correspondent to both true and false paths
-  string function_name = I->getFunction()->getName().str();
-  const char *c = function_name.c_str();
-  Twine node_next_Twine(I->getParent()->getName(), c);
-  Variable node_next_name = node_next_Twine.str();
+  string s1 = I->getFunction()->getName().str();
+  const char *c = s1.c_str();
+  Twine s2(I->getParent()->getName(), c);
+  Variable node_next_name = s2.str();
+  //errs() << "NODE NEXT NAME:" << node_next_name <<"\n";
   unsigned i = I->getNumOperands();
   unsigned k = loadVariables.size();
   Variable true_operand = I->getOperand(0)->getName();
@@ -185,8 +197,8 @@ void Solver::handlePHI(Instruction* I){
   Node* final_n = graph.findNode(node_name); 
   final_n->next = graph.findNode(node_next_name);
   delTemporaryNode = true;
-  errs() <<"HANDLE PHI\n";
-  graph.print();
+  //errs() <<"HANDLE PHI\n";
+  //graph.print();
 }
 
 bool Solver::runOnModule(Module &M) {

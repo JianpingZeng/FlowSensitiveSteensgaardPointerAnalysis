@@ -53,3 +53,12 @@ void Points_to_Graph::print(){
     errs() <<"\n";
   }
 }
+
+/*void Points_to_Graph::print(){
+  const StringRef* hj;
+  errs() <<"\nfinal graph " <<"\n";
+  for(auto &i:nodes){
+    hj = &i.first;
+    errs() <<*hj<<"\n";
+  }
+}*/
