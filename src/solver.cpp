@@ -12,29 +12,28 @@ void Solver::handleAlloca(Variable node_name){
 
 void Solver::handleStore(Instruction* I){
   Variable v1 = ((lineno - lineptr == 1) ? ptrOperand : I->getOperand(0)->getName());
-  errs() <<"<<<<<<<<<<<<<STORE>>>>>>>>>>>>>>>>>>\n";
-  errs() << *I <<"\n";
-  errs() <<"0: " <<v1 <<"\n";
   v1 = ((copyConstraint) ? loadVariables.back() : v1);
-  errs() <<"1: " <<v1 <<"\n";
   if(v1.empty()){
     Value* op = I->getOperand(0);
      if (ConstantExpr* itpi  = dyn_cast <ConstantExpr>(op)) {
-       errs() <<"DEBUG\n";
        v1 = itpi->getAsInstruction()->getOperand(0)->getName();
      }
   }
   Variable v2 = I->getOperand(1)->getName();
   Node *node1 = graph.findNode(v2);
   Node *node2 = graph.findNode(v1);
-  //errs() <<"<<<<<<<<<<<<<STORE>>>>>>>>>>>>>>>>>>\n";
+  //errs() <<"\n<<<<<<<<<<<<<STORE>>>>>>>>>>>>>>>>>>\n";
   //errs() <<"copyConstraint: "<<copyConstraint <<"\n";
   //errs() <<v2 <<" and " <<v1 <<"\n";
   if(node1!=nullptr && node2!=nullptr){
     if(mayBeExecuted){
-      handleStoreInMayExecuteBasicBlock(node1, node2);
-      copyConstraint = false;
-      return;
+      if(!delTemporaryNode){
+	handleStoreInMayExecuteBasicBlock(node1, node2);
+	copyConstraint = false;
+	//errs() <<"\nIAIAIO\n";
+	//graph.print();
+	return;
+      }
     }
     if(delTemporaryNode){ //If we are storing a value from a temporary node, we must delete this node, because it's not exists in the source code
       node1->next = node2->next;
@@ -52,7 +51,7 @@ void Solver::handleStore(Instruction* I){
     //We set the flag to false since we already treated the contraint at this point
     copyConstraint = false;
   }
-  
+  //graph.print();
 }
 
 void Solver::handleStoreInCopyConstraint(Node* nodeLeft, Node* nodeRight){
@@ -157,13 +156,37 @@ void Solver::handlePHI(Instruction* I){
   //When occurs a phi instruction, LLVM's IR creat a temporary called "%cond". We create a node for this temporary, and set true the 
   //delTemporaryNode flag, thus the algorithm delete this node after the store which use this node. This node points-to the merge of the nodes
   //correspondent to the true and false paths of the condition.
-  Node n;
-  Variable v = I->getName();
-  n.points_to_variables.push_back(v);
-  n.next= graph.findNode(I->getOperand(0)->getName()); //Initially, the node points-to the node of true paths
-  graph.merge(n.next, graph.findNode(I->getOperand(1)->getName())); //Then, we merge the node of false path in the points-to set.
-  graph.insertNode(n,v);
+  //errs() << *I <<"\n";
+  
+  //We first create a node to store the temporary "%cond" and insert into the graph
+  Node n, n_next;
+  Variable node_name = I->getName();
+  n.points_to_variables.push_back(node_name);
+  n.next = nullptr;
+  graph.insertNode(n, node_name);
+ 
+  //Then we create a node for which the "%cond" node must points to. This node must contain the variables correspondent to both true and false paths
+  string function_name = I->getFunction()->getName().str();
+  const char *c = function_name.c_str();
+  Twine node_next_Twine(I->getParent()->getName(), c);
+  Variable node_next_name = node_next_Twine.str();
+  unsigned i = I->getNumOperands();
+  unsigned k = loadVariables.size();
+  Variable true_operand = I->getOperand(0)->getName();
+  Variable false_operand = I->getOperand(1)->getName();
+  //If the operands of the instruction are temporaries, we need to get the correspondent original variables from the loadVariables array
+  (true_operand.empty()) ? n_next.points_to_variables.push_back(loadVariables[k-i]) : n_next.points_to_variables.push_back(true_operand);
+  i--;
+  (false_operand.empty()) ? n_next.points_to_variables.push_back(loadVariables[k-i]) : n_next.points_to_variables.push_back(false_operand);
+  n_next.next = nullptr;
+  graph.insertNode(n_next, node_next_name);
+  
+  //As the nodes were created locally, it is necessary to have them point to the correct location using references to both nodes
+  Node* final_n = graph.findNode(node_name); 
+  final_n->next = graph.findNode(node_next_name);
   delTemporaryNode = true;
+  errs() <<"HANDLE PHI\n";
+  graph.print();
 }
 
 bool Solver::runOnModule(Module &M) {
@@ -178,14 +201,14 @@ bool Solver::runOnModule(Module &M) {
       StringRef bbName = bb.getName();
       if(bbName.startswith("if.then") || bbName.startswith("if.else")){
 	mayBeExecuted = true;
-	branchCounter++;
       }
       else if (bbName.startswith("sw") && !bbName.endswith("epilog")){
 	mayBeExecuted = true;
-	branchCounter++;
       }
       for (Instruction &I: bb) {
 	lineno++;
+	//graph.print();
+	//errs() << I <<"\n";
 	switch(I.getOpcode()){
 	  case Instruction::Alloca:
 	    handleAlloca(I.getName());
@@ -219,6 +242,7 @@ bool Solver::runOnModule(Module &M) {
 	    break;
 	  case Instruction::Br: //The branch instruction utilizes a operator that is loaded. The load instruction will enable the copyConstraint flag
 	    copyConstraint = false; //But in this case we don't have a Copy Constraint, so we set the flag to false
+	    branchCounter++;
 	    break;
 	}
       }

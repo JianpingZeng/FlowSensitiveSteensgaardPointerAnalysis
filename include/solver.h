@@ -18,7 +18,7 @@ class Solver{
     bool delTemporaryNode = false; //this flag indicate a Store with a node correspondent to a LLVM's IR temporary. This means we need delete the node after the store
     bool mayBeExecuted = false; //this flag indicate we are in a basicblock that belongs to a conditional and it's not the main block.
     int functionCounter = 0; //used to stores the functions in functions's map
-    int branchCounter = 0; //used to be the key value for nodes referents to branch statements
+    int branchCounter =0 ;
     
     void handleAlloca(Variable node_name);
     void handleStore(Instruction* I);
