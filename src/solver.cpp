@@ -13,13 +13,26 @@ void Solver::handleAlloca(Variable node_name){
 void Solver::handleStore(Instruction* I){
   Variable v1 = ((lineno - lineptr == 1) ? ptrOperand : I->getOperand(0)->getName());
   v1 = ((copyConstraint) ? loadVariables.back() : v1);
-  if(v1.empty()){
+  if(v1.empty()){ //if the v1 name is empty, we have one instruction as operand of another. We have to convert it and get its operand
     Value* op = I->getOperand(0);
      if (ConstantExpr* itpi  = dyn_cast <ConstantExpr>(op)) {
-       v1 = itpi->getAsInstruction()->getOperand(0)->getName();
+       v1 = itpi->getOperand(0)->getName();
      }
   }
   Variable v2 = I->getOperand(1)->getName();
+  if(v2.empty()){ //if the v2 name is empty, there's a Store instruction with two LLVM's temporaries.	
+    if(copyConstraint){ //In this case we have a Load Constraint or a Store Constraint. We treat this as follows:
+      //If the storeConstraint flag is true, we set it to false and the first node must points-to the whatever the second node points to, just as 
+      //in a Copy Constraint. Otherwise, there's a Load Constraint, thus the first node must points-to the second node itself, just as a Address-Of Constraint
+      //We set the copyConstraint flag to false for the function handle the Store Constraint this way. 
+      v2 = v1;
+      v1 = *++loadVariables.rbegin();
+      if(storeConstraint)
+	storeConstraint = false;
+      else
+	copyConstraint = false;
+    }
+  }
   Node *node1 = graph.findNode(v2);
   Node *node2 = graph.findNode(v1);
   //errs() <<"\n<<<<<<<<<<<<<STORE>>>>>>>>>>>>>>>>>>\n";
@@ -30,13 +43,10 @@ void Solver::handleStore(Instruction* I){
       if(!delTemporaryNode){
 	handleStoreInMayExecuteBasicBlock(node1, node2);
 	copyConstraint = false;
-	//errs() <<"\nIAIAIO\n";
-	//graph.print();
 	return;
       }
     }
     if(delTemporaryNode){ //If we are storing a value from a temporary node, we must delete this node, because it's not exists in the source code
-      
       node1->next = node2->next;
       graph.deleteNode(node2->points_to_variables[0]);
       delTemporaryNode = false;
@@ -45,6 +55,7 @@ void Solver::handleStore(Instruction* I){
     if(node1->next == nullptr){
       (copyConstraint) ? node1->next = node2->next : node1->next = node2;
       copyConstraint = false;
+      //graph.print();
       return;
     }
     //In case of a copy constraint, the node must point to whatever the second node points to.
@@ -52,16 +63,14 @@ void Solver::handleStore(Instruction* I){
     //We set the flag to false since we already treated the contraint at this point
     copyConstraint = false;
   }
-  //graph.print();
 }
 
-void Solver::handleStoreInCopyConstraint(Node* nodeLeft, Node* nodeRight){
-  //We create this method because the treatment of a copy instruction is a little bit different.
-  //errs() << nodeLeft->points_to_variables[0] <<" " <<nodeRight->points_to_variables[0] <<"\n";
-  if(nodeRight->next==nullptr)
-    nodeRight->next = nodeLeft;
+void Solver::bindFunctionParameters(Node* actualParameter, Node* formalParameter){ 
+  //This function creates a relation between the actual and the formal parameters in a function call
+  if(formalParameter->next==nullptr)
+    formalParameter->next = actualParameter;
   else
-    nodeLeft->next = nodeRight->next;
+    actualParameter->next = formalParameter->next;
 }
 
 void Solver::handleStoreInMayExecuteBasicBlock(Node* node1, Node* node2){
@@ -93,11 +102,23 @@ void Solver::handleLoad(Instruction* I){
       return;
     copyConstraint = true;
   }
+  else
+    storeConstraint = true;
 }
   
 void Solver::handleCall(Instruction* I){
   errs() << *I <<"\n";
-  Function *F = cast<CallInst>(*I).getCalledFunction(); //We cast the instruction to a CallInst to get information about the calee function
+  Function *F = cast<CallInst>(*I).getCalledFunction();	//We cast the instruction to a CallInst to get information about the calee function
+  if(F->getName().startswith("llvm.memcpy")){ //A call to a llvm.memcpy function occurs when there's a Load or Store Constraint involving struct types
+    //In this case we use the bitCastOperand variable 
+    if(!bitCastOperand.empty()){
+      graph.findNode(loadVariables.back())->next = graph.findNode(bitCastOperand);
+    }
+    else{
+      graph.findNode(*++loadVariables.rbegin())->next = graph.findNode(loadVariables.back())->next;
+    }
+    return;
+  }
   //When occurs a function call that have some kind of return, LLVM's IR store this value in a temporary called %call
   //LLVM's Instruction inherits from Value class, so we can use it's name as a Value.
   if(!I->getName().empty()){ //If the name of the Instruction is not empty, we have a %call temporary receiving the function call
@@ -118,7 +139,7 @@ void Solver::handleCall(Instruction* I){
     Variable node_name(argName.str());
     //The LLVM loads all the real parameters in temporaries before the function call. Those parameters are stored in the loadVariables vector
     //Due the C's passing parameters mechanism, we merge the parameters treating the function call like a copy constraint    
-    handleStoreInCopyConstraint(graph.findNode(loadVariables[k-i]),graph.findNode(node_name));
+    bindFunctionParameters(graph.findNode(loadVariables[k-i]),graph.findNode(node_name));
     i--;
   }
   copyConstraint = false;
@@ -145,6 +166,12 @@ void Solver::handleRet(Instruction* I){
 void Solver::handleGetElementPtr(Instruction* I){
   //When occurs a access to a vector, LLVM's IR creat a temporary called "%arayidx". We create a node for this temporary, and set true the 
   //delTemporaryNode flag, thus the algorithm delete this node after the store which use this node. This node points-to the array node.
+  GetElementPtrInst* gepi = dyn_cast<GetElementPtrInst>(I);
+  Type *t = gepi->getSourceElementType();
+  if(t->isStructTy()){ //our analysis isn't field-sensitive, thus we ignore the statements that handle defined types
+    errs() <<"e uma struct: "<<I->getName() <<"\n";
+    return;
+  }
   Node n;
   Variable v = I->getName();
   n.points_to_variables.push_back(v);
@@ -162,16 +189,10 @@ void Solver::handlePHI(Instruction* I){
   //When occurs a phi instruction, LLVM's IR creat a temporary called "%cond". We create a node for this temporary, and set true the 
   //delTemporaryNode flag, thus the algorithm delete this node after the store which use this node. This node points-to the merge of the nodes
   //correspondent to the true and false paths of the condition.
-  //errs() << *I <<"\n";
   
   //We first create a node to store the temporary "%cond" and insert into the graph
   Node n, n_next;
   Variable node_name = I->getName();
-  //string s1 = I->getFunction()->getName().str();
-  //const char *c = s1.c_str();
-  //Twine s3(I->getName(), c);
-  //Variable node_name = s3.str();
-  //errs() <<"NODE NAME: "<< node_name <<"\n";
   n.points_to_variables.push_back(node_name);
   n.next = nullptr;
   graph.insertNode(n, node_name);
@@ -181,7 +202,6 @@ void Solver::handlePHI(Instruction* I){
   const char *c = s1.c_str();
   Twine s2(I->getParent()->getName(), c);
   Variable node_next_name = s2.str();
-  //errs() << "NODE NEXT NAME:" << node_next_name <<"\n";
   unsigned i = I->getNumOperands();
   unsigned k = loadVariables.size();
   Variable true_operand = I->getOperand(0)->getName();
@@ -197,8 +217,10 @@ void Solver::handlePHI(Instruction* I){
   Node* final_n = graph.findNode(node_name); 
   final_n->next = graph.findNode(node_next_name);
   delTemporaryNode = true;
-  //errs() <<"HANDLE PHI\n";
-  //graph.print();
+}
+
+void Solver::handleBitCast(Instruction* I){
+  bitCastOperand = I->getOperand(0)->getName();
 }
 
 bool Solver::runOnModule(Module &M) {
@@ -209,7 +231,7 @@ bool Solver::runOnModule(Module &M) {
     errs() << "Nome da funcao: " << F.getName() <<"\n";
     for (BasicBlock &bb: F) {
       //The logic below is used to determine if a basicblock is generetade by a conditional statement
-      //In another words, it diferentiate a block that "may" be executed from the blocks that "must" be executed
+      //In nother words, it diferentiate a block that "may" be executed from the blocks that "must" be executed
       StringRef bbName = bb.getName();
       if(bbName.startswith("if.then") || bbName.startswith("if.else")){
 	mayBeExecuted = true;
@@ -255,6 +277,9 @@ bool Solver::runOnModule(Module &M) {
 	  case Instruction::Br: //The branch instruction utilizes a operator that is loaded. The load instruction will enable the copyConstraint flag
 	    copyConstraint = false; //But in this case we don't have a Copy Constraint, so we set the flag to false
 	    branchCounter++;
+	    break;
+	  case Instruction::BitCast:
+	    handleBitCast(&I);
 	    break;
 	}
       }
