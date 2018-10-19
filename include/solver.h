@@ -14,6 +14,7 @@ class Solver{
     Variable ptrOperand; //variable used to store the operand of a PtrToInt instruction
     Variable loadOperand; //variable used to store the operand of a Load instruction
     Variable bitCastOperand;
+    Variable SExtOperand;
     vector<Variable> loadVariables; //vector used to store the operands of the load instructions. It is necessary being a vector because the function calls
     bool copyConstraint = false; //this flag indicate if we are treating a copy constraint, because it's treatment is different
     bool delTemporaryNode = false; //this flag indicate a Store with a node correspondent to a LLVM's IR temporary. This means we need delete the node after the store
@@ -31,6 +32,7 @@ class Solver{
     void handleCall(Instruction* I);
     void handleRet(Instruction* I);
     void handleGetElementPtr(Instruction* I);
+    void handleSExt(Instruction* I);
     void handleIntToPtr();
     void handlePHI(Instruction* I);
     void handleBitCast(Instruction* I);

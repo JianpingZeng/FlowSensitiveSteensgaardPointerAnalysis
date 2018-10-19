@@ -11,8 +11,15 @@ void Solver::handleAlloca(Variable node_name){
 }
 
 void Solver::handleStore(Instruction* I){
-  Variable v1 = ((lineno - lineptr == 1) ? ptrOperand : I->getOperand(0)->getName());
-  v1 = ((copyConstraint) ? loadVariables.back() : v1);
+  Variable v1;
+  if(!SExtOperand.empty()){
+    v1 = SExtOperand;
+    SExtOperand = "";
+  }
+  else{
+    v1 = ((lineno - lineptr == 1) ? ptrOperand : I->getOperand(0)->getName());
+    v1 = ((copyConstraint) ? loadVariables.back() : v1);
+  }
   if(v1.empty()){ //if the v1 name is empty, we have one instruction as operand of another. We have to convert it and get its operand
     Value* op = I->getOperand(0);
      if (ConstantExpr* itpi  = dyn_cast <ConstantExpr>(op)) {
@@ -55,7 +62,6 @@ void Solver::handleStore(Instruction* I){
     if(node1->next == nullptr){
       (copyConstraint) ? node1->next = node2->next : node1->next = node2;
       copyConstraint = false;
-      //graph.print();
       return;
     }
     //In case of a copy constraint, the node must point to whatever the second node points to.
@@ -67,10 +73,14 @@ void Solver::handleStore(Instruction* I){
 
 void Solver::bindFunctionParameters(Node* actualParameter, Node* formalParameter){ 
   //This function creates a relation between the actual and the formal parameters in a function call
-  if(formalParameter->next==nullptr)
-    formalParameter->next = actualParameter;
-  else
-    actualParameter->next = formalParameter->next;
+  if(actualParameter!=nullptr && formalParameter!=nullptr){
+    if(formalParameter->next==nullptr){
+      formalParameter->next = actualParameter;
+    }
+    else{
+      actualParameter->next = formalParameter->next;
+    }
+  }
 }
 
 void Solver::handleStoreInMayExecuteBasicBlock(Node* node1, Node* node2){
@@ -98,8 +108,11 @@ void Solver::handleLoad(Instruction* I){
     loadVariables.push_back(loadOperand);
     //Steensgaard Analysis ignore the statement if the points-to set of the right-side operator is empty
     //In this case, the update it's not necessary
-    if(graph.findNode(loadOperand)->next==nullptr) 
-      return;
+    Node *node = graph.findNode(loadOperand);
+    if(node!=nullptr){
+      if(node->next==nullptr) 
+	return;
+    }
     copyConstraint = true;
   }
   else
@@ -109,16 +122,28 @@ void Solver::handleLoad(Instruction* I){
 void Solver::handleCall(Instruction* I){
   errs() << *I <<"\n";
   Function *F = cast<CallInst>(*I).getCalledFunction();	//We cast the instruction to a CallInst to get information about the calee function
+  if(F==nullptr)
+    return;
   if(F->getName().startswith("llvm.memcpy")){ //A call to a llvm.memcpy function occurs when there's a Load or Store Constraint involving struct types
     //In this case we use the bitCastOperand variable 
     if(!bitCastOperand.empty()){
-      graph.findNode(loadVariables.back())->next = graph.findNode(bitCastOperand);
+      //errs() <<"BIT CAST: " <<bitCastOperand <<"\n";
+      //graph.print();
+      //errs() <<"BACK: " <<loadVariables.back() <<"\n";
+      Node* n = graph.findNode(loadVariables.back());
+      if(n!=nullptr)
+	graph.findNode(loadVariables.back())->next = graph.findNode(bitCastOperand);
+      
     }
     else{
-      graph.findNode(*++loadVariables.rbegin())->next = graph.findNode(loadVariables.back())->next;
+      Node* n = graph.findNode(*++loadVariables.rbegin());
+      if(n!=nullptr)
+	n->next = graph.findNode(loadVariables.back())->next;
     }
     return;
   }
+  if(F->isDeclaration() || F->getName().empty()) //We're able to handle only functions defined in the module
+    return;
   //When occurs a function call that have some kind of return, LLVM's IR store this value in a temporary called %call
   //LLVM's Instruction inherits from Value class, so we can use it's name as a Value.
   if(!I->getName().empty()){ //If the name of the Instruction is not empty, we have a %call temporary receiving the function call
@@ -157,19 +182,29 @@ void Solver::handleRet(Instruction* I){
      Variable node_name = I->getFunction()->getName();
      Node n;
      n.points_to_variables.push_back(node_name);
-     n.next = graph.findNode("retval")->next;
+     if(graph.findNode("retval")!=nullptr){
+      n.next = graph.findNode("retval")->next;
+      graph.deleteNode("retval");
+     }
+     else{
+       Variable node_ret_name = I->getOperand(0)->getName();
+       if(!node_ret_name.empty()){
+	 n.next = graph.findNode(loadVariables.back());
+       }
+     }
      functions[node_name] = n;
-     graph.deleteNode("retval");     
+          
    }
 }
 
 void Solver::handleGetElementPtr(Instruction* I){
   //When occurs a access to a vector, LLVM's IR creat a temporary called "%arayidx". We create a node for this temporary, and set true the 
   //delTemporaryNode flag, thus the algorithm delete this node after the store which use this node. This node points-to the array node.
+  SExtOperand = "";
   GetElementPtrInst* gepi = dyn_cast<GetElementPtrInst>(I);
   Type *t = gepi->getSourceElementType();
-  if(t->isStructTy()){ //our analysis isn't field-sensitive, thus we ignore the statements that handle defined types
-    errs() <<"e uma struct: "<<I->getName() <<"\n";
+  if(t->isStructTy()){ //our analysis isn't field-sensitive, thus we ignore the statements that handle fields of defined types
+    //errs() <<"e uma struct: "<<I->getName() <<"\n";
     return;
   }
   Node n;
@@ -178,6 +213,12 @@ void Solver::handleGetElementPtr(Instruction* I){
   n.next= graph.findNode(I->getOperand(0)->getName());
   graph.insertNode(n,v);
   delTemporaryNode = true;
+}
+
+void Solver::handleSExt(Instruction* I){
+  ptrOperand = loadVariables.back();
+  copyConstraint = false;
+  SExtOperand = I->getOperand(0)->getName();
 }
 
 void Solver::handleIntToPtr(){
@@ -214,8 +255,9 @@ void Solver::handlePHI(Instruction* I){
   graph.insertNode(n_next, node_next_name);
   
   //As the nodes were created locally, it is necessary to have them point to the correct location using references to both nodes
-  Node* final_n = graph.findNode(node_name); 
-  final_n->next = graph.findNode(node_next_name);
+  Node* final_n = graph.findNode(node_name);
+  if(final_n!=nullptr)
+    final_n->next = graph.findNode(node_next_name);
   delTemporaryNode = true;
 }
 
@@ -269,7 +311,7 @@ bool Solver::runOnModule(Module &M) {
 	    handleIntToPtr();
 	    break;
 	  case Instruction::SExt:
-	    ptrOperand = loadVariables.back();
+	    handleSExt(&I);
 	    break;
 	  case Instruction::PHI:
 	    handlePHI(&I);
@@ -286,6 +328,6 @@ bool Solver::runOnModule(Module &M) {
     }
     mayBeExecuted = false;
   }
-  graph.print();
+  //graph.print();
   return false;
 }
